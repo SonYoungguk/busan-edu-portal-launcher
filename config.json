@@ -1,0 +1,10 @@
+{
+  "portal_url": "https://pen.eduptl.kr/bpm_man_mn00_001.do",
+  "login_indicator_text": "Logout",
+  "login_button_text": "교육행정 전자서명 인증서 로그인",
+  "nice_link_text": "나이스",
+  "edufine_url": "https://klef.pen.go.kr/",
+  "notice_dismiss_texts": ["1주일동안 열지 않기"],
+  "timeout_seconds": 300,
+  "poll_interval_seconds": 2
+}
