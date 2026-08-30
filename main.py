@@ -1,7 +1,10 @@
-"""업무포털 로그인 감지 후 나이스/K-에듀파인을 자동으로 여는 런처.
+"""필요한 사이트들을 순서대로 한 창에 탭으로 열어주는 런처.
+
+기본 순서: 클로드 웹사이트 -> 부산교육연수원 -> 구글 클래스룸 -> Playkit -> 업무포털
+           -> (로그인 후) 나이스 -> K-에듀파인
 
 인증서 로그인(PIN 입력)은 사용자가 직접 완료해야 하며, 이 스크립트는 그 창에는
-관여하지 않는다. 로그인 완료 여부만 화면 요소로 감지해서, 완료되면:
+관여하지 않는다. 업무포털 로그인 완료 여부만 화면 요소로 감지해서, 완료되면:
 - K-에듀파인은 klef.pen.go.kr 세션 쿠키가 업무포털과 공유되어 URL을 바로 열어도
   로그인 상태로 뜨므로, 새 탭으로 직접 연다.
 - 나이스는 별도 도메인(neis.go.kr)이라 세션이 공유되지 않아, 업무포털의 SSO
@@ -28,6 +31,12 @@ except ImportError:
 EDGE_WINDOW_CLASS = "Chrome_WidgetWin_1"
 
 DEFAULT_CONFIG = {
+    "extra_urls": [
+        "https://claude.ai",
+        "https://edu.beti.go.kr/",
+        "https://classroom.google.com",
+        "https://sonyoungguk.github.io/playkit/",
+    ],
     "portal_url": "https://pen.eduptl.kr/bpm_man_mn00_001.do",
     "login_indicator_text": "Logout",
     "login_button_text": "교육행정 전자서명 인증서 로그인",
@@ -185,6 +194,20 @@ def count_tabs(window) -> "int | None":
         return None
 
 
+def open_tab(window, url: str, settle: float = 0.5) -> None:
+    """같은 창 안에 Ctrl+T로 새 탭을 열고 url로 이동한다 (모든 사이트를 한 창에 모으기 위해
+    subprocess로 새 창을 띄우는 대신 이 방식을 쓴다)."""
+    try:
+        window.set_focus()
+        time.sleep(0.2)
+        window.type_keys("^t")
+        time.sleep(0.3)
+        window.type_keys(url + "{ENTER}", pause=0.01)
+        time.sleep(settle)
+    except Exception as e:
+        log(f"'{url}' 여는 데 실패: {e}")
+
+
 def wait_for_navigation(window, before_windows: dict, before_tab_count, timeout: int = 60, interval: int = 1) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -249,10 +272,15 @@ def run() -> None:
         log(str(e))
         return
 
-    log(f"Edge 실행: {cfg['portal_url']}")
+    # 필요한 사이트들을 순서대로 한 창에 탭으로 연다. 첫 사이트로 창을 새로 띄우고,
+    # 나머지(연수원/클래스룸/업무포털)는 같은 창에 탭으로 추가한다.
+    extra_urls = cfg.get("extra_urls", [])
+    first_url = extra_urls[0] if extra_urls else cfg["portal_url"]
+
+    log(f"Edge 실행: {first_url}")
     before = get_edge_windows()
     try:
-        subprocess.Popen([edge_path, "--new-window", cfg["portal_url"]])
+        subprocess.Popen([edge_path, "--new-window", first_url])
     except OSError as e:
         log(f"Edge 실행 실패: {e}")
         return
@@ -266,7 +294,15 @@ def run() -> None:
             return
         window = list(windows.values())[-1]
 
-    # 창이 뜨자마자 클릭하면 페이지가 아직 렌더링/반응 준비가 안 됐을 수 있어 0.5초 대기.
+    time.sleep(0.5)
+    for url in extra_urls[1:]:
+        log(f"탭 여는 중: {url}")
+        open_tab(window, url)
+
+    log(f"업무포털 탭 여는 중: {cfg['portal_url']}")
+    open_tab(window, cfg["portal_url"])
+
+    # 창이 뜨자마자 클릭하면 페이지가 아직 렌더링/반응 준비가 안 됐을 수 있어 0.3초 대기.
     time.sleep(0.3)
 
     # 로그인 전 화면이면 인증서 로그인 버튼을 눌러 인증서 선택/PIN 입력 창을 띄운다.
@@ -334,17 +370,13 @@ def run() -> None:
             else:
                 log("나이스 열림을 확인하지 못했습니다 (60초 대기)")
 
-    # 2) 그 다음 K-에듀파인: 업무포털과 세션 쿠키가 공유되므로 URL을 바로 새 탭으로 연다.
+    # 2) 그 다음 K-에듀파인: 업무포털과 세션 쿠키가 공유되므로 같은 창에 새 탭으로 바로 연다.
     log(f"K-에듀파인 여는 중: {cfg['edufine_url']}")
-    try:
-        subprocess.Popen([edge_path, cfg["edufine_url"]])
-    except OSError as e:
-        log(f"K-에듀파인 열기 실패: {e}")
+    open_tab(window, cfg["edufine_url"])
+    if wait_for_any_tab_containing("에듀파인"):
+        log("K-에듀파인 열림 확인됨")
     else:
-        if wait_for_any_tab_containing("에듀파인"):
-            log("K-에듀파인 열림 확인됨")
-        else:
-            log("K-에듀파인 열림을 확인하지 못했습니다 (60초 대기)")
+        log("K-에듀파인 열림을 확인하지 못했습니다 (60초 대기)")
 
     log("완료")
 
