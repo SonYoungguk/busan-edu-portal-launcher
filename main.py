@@ -1,6 +1,6 @@
 """필요한 사이트들을 순서대로 한 창에 탭으로 열어주는 런처.
 
-기본 순서: 클로드 웹사이트 -> 부산교육연수원 -> 구글 클래스룸 -> Playkit -> 업무포털
+기본 순서: 클로드 웹사이트 -> 부산교육연수원 -> Playkit -> 업무포털
            -> (로그인 후) 나이스 -> K-에듀파인
 
 인증서 로그인(PIN 입력)은 사용자가 직접 완료해야 하며, 이 스크립트는 그 창에는
@@ -24,6 +24,7 @@ from pathlib import Path
 try:
     from pywinauto import Desktop
     import psutil
+    import win32clipboard
 except ImportError:
     print("필요한 패키지가 설치되어 있지 않습니다. 'pip install -r requirements.txt'를 먼저 실행하세요.")
     sys.exit(1)
@@ -34,7 +35,6 @@ DEFAULT_CONFIG = {
     "extra_urls": [
         "https://claude.ai",
         "https://edu.beti.go.kr/",
-        "https://classroom.google.com",
         "https://sonyoungguk.github.io/playkit/",
     ],
     "portal_url": "https://pen.eduptl.kr/bpm_man_mn00_001.do",
@@ -194,15 +194,28 @@ def count_tabs(window) -> "int | None":
         return None
 
 
+def set_clipboard_text(text: str) -> None:
+    win32clipboard.OpenClipboard()
+    try:
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+    finally:
+        win32clipboard.CloseClipboard()
+
+
 def open_tab(window, url: str, settle: float = 0.5) -> None:
     """같은 창 안에 Ctrl+T로 새 탭을 열고 url로 이동한다 (모든 사이트를 한 창에 모으기 위해
-    subprocess로 새 창을 띄우는 대신 이 방식을 쓴다)."""
+    subprocess로 새 창을 띄우는 대신 이 방식을 쓴다). 주소는 한 글자씩 타이핑하지 않고
+    클립보드에 복사해서 붙여넣는다 (더 빠르고, 특수문자 오타 위험도 없음)."""
     try:
         window.set_focus()
         time.sleep(0.2)
         window.type_keys("^t")
         time.sleep(0.3)
-        window.type_keys(url + "{ENTER}", pause=0.01)
+        set_clipboard_text(url)
+        window.type_keys("^v")
+        time.sleep(0.1)
+        window.type_keys("{ENTER}")
         time.sleep(settle)
     except Exception as e:
         log(f"'{url}' 여는 데 실패: {e}")
@@ -348,12 +361,18 @@ def run() -> None:
     dismiss_notices(window, cfg.get("notice_dismiss_texts", []))
 
     # 1) 나이스 먼저: 별도 도메인이라 세션이 공유되지 않으므로, 업무포털의 SSO
-    #    바로가기 버튼을 실제로 클릭해서 넘어간다.
+    #    바로가기 버튼을 실제로 클릭해서 넘어간다. 중간에 안내 팝업이 나중에 뜨면서
+    #    클릭을 가로챌 수 있으므로, 처음 클릭이 안 먹히면 팝업을 다시 닫고 재시도한다.
     text = cfg["nice_link_text"]
-    elem = find_element_by_text(window, text, exact=True, control_type="Hyperlink")
-    if elem is None:
-        log(f"'{text}' 바로가기를 찾지 못했습니다.")
-    else:
+    notice_texts = cfg.get("notice_dismiss_texts", [])
+    opened = False
+    found_element = True
+    for attempt in range(2):
+        elem = find_element_by_text(window, text, exact=True, control_type="Hyperlink")
+        if elem is None:
+            found_element = False
+            break
+
         before_windows = get_edge_windows()
         before_tab_count = count_tabs(window)
         try:
@@ -362,13 +381,27 @@ def run() -> None:
             log("나이스 바로가기 클릭됨, 로딩 대기 중...")
         except Exception as e:
             log(f"나이스 바로가기 클릭 실패: {e}")
-            elem = None
+            break
 
-        if elem is not None:
-            if wait_for_navigation(window, before_windows, before_tab_count):
-                log("나이스 열림 확인됨")
-            else:
-                log("나이스 열림을 확인하지 못했습니다 (60초 대기)")
+        wait_timeout = 15 if attempt == 0 else 60
+        if wait_for_navigation(window, before_windows, before_tab_count, timeout=wait_timeout):
+            log("나이스 열림 확인됨")
+            opened = True
+            break
+
+        if attempt == 0:
+            log("나이스가 열리지 않아 안내창이 가리고 있는지 다시 확인합니다.")
+            try:
+                window.set_focus()
+                window.type_keys("{ESC}")
+            except Exception:
+                pass
+            dismiss_notices(window, notice_texts)
+
+    if not found_element:
+        log(f"'{text}' 바로가기를 찾지 못했습니다.")
+    elif not opened:
+        log("나이스 열림을 확인하지 못했습니다.")
 
     # 2) 그 다음 K-에듀파인: 업무포털과 세션 쿠키가 공유되므로 같은 창에 새 탭으로 바로 연다.
     log(f"K-에듀파인 여는 중: {cfg['edufine_url']}")
