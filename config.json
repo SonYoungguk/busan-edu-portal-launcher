@@ -9,7 +9,7 @@
   "login_button_text": "교육행정 전자서명 인증서 로그인",
   "nice_link_text": "나이스",
   "edufine_url": "https://klef.pen.go.kr/",
-  "notice_dismiss_texts": ["1주일동안 열지 않기"],
+  "notice_dismiss_texts": ["1주일동안 열지 않기", "닫기", "X", "×"],
   "timeout_seconds": 300,
   "poll_interval_seconds": 1
 }

@@ -42,7 +42,7 @@ DEFAULT_CONFIG = {
     "login_button_text": "교육행정 전자서명 인증서 로그인",
     "nice_link_text": "나이스",
     "edufine_url": "https://klef.pen.go.kr/",
-    "notice_dismiss_texts": ["1주일동안 열지 않기"],
+    "notice_dismiss_texts": ["1주일동안 열지 않기", "닫기", "X", "×"],
     "timeout_seconds": 300,
     "poll_interval_seconds": 1,
 }
@@ -168,21 +168,26 @@ def wait_for_text(window, text: str, timeout: int, interval: int) -> bool:
 
 
 def dismiss_notices(window, texts, attempts: int = 3) -> None:
-    """로그인 직후 뜨는 안내 팝업(예: '1주일동안 열지 않기')이 바로가기 아이콘을 가려
-    클릭을 가로채는 걸 막기 위해, 클릭 전에 먼저 닫아본다."""
+    """로그인 직후 업무포털 페이지 안에 나타나는 안내 배너(예: '1주일동안 열지 않기'
+    문구, 또는 우측 상단의 X 닫기 아이콘)가 바로가기 아이콘을 가려 클릭을 가로채는
+    걸 막기 위해, 클릭 전에 먼저 닫아본다. 팝업 창이 아니라 페이지 안 요소라서
+    control_type을 Button으로 제한하지 않고 전체에서 찾는다 (X 아이콘은 Hyperlink,
+    Image, Text 등으로 노출되는 경우가 많다). 'X'처럼 아주 짧은 글자는 페이지의
+    다른 곳에 우연히 있는 글자와 헷갈리지 않도록 정확히 일치할 때만 클릭한다."""
     for _ in range(attempts):
         dismissed_any = False
         for text in texts:
-            elem = find_element_by_text(window, text, exact=False, control_type="Button")
+            exact = len(text) <= 2
+            elem = find_element_by_text(window, text, exact=exact)
             if elem is None:
                 continue
             try:
                 elem.click_input()
-                log(f"안내 팝업 닫음: '{text}'")
+                log(f"안내 배너 닫음: '{text}'")
                 dismissed_any = True
                 time.sleep(1)
             except Exception as e:
-                log(f"안내 팝업 닫기 실패('{text}'): {e}")
+                log(f"안내 배너 닫기 실패('{text}'): {e}")
         if not dismissed_any:
             return
 
