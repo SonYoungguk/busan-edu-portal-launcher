@@ -1,0 +1,52 @@
+# Windows에서 EduPortalLauncher.exe를 빌드해 "latest" 릴리스에 올린다.
+# master에 코드가 바뀌면 자동으로, 또는 Actions 탭에서 수동(Run workflow)으로 실행할 수 있다.
+# 다운로드: https://github.com/SonYoungguk/busan-edu-portal-launcher/releases/latest
+name: Build exe
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - main.py
+      - requirements.txt
+      - .github/workflows/build-exe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # build.bat과 같은 옵션으로 빌드
+      - name: Build
+        run: >
+          pyinstaller --onefile --noconsole --name EduPortalLauncher
+          --exclude-module tkinter --exclude-module unittest --exclude-module pydoc
+          --exclude-module doctest --exclude-module distutils --exclude-module xmlrpc
+          --exclude-module lib2to3 --exclude-module test
+          main.py
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp config.json dist/config.json
+          notes="master 커밋 ${GITHUB_SHA::7} 에서 자동 빌드 ($(date -u +%Y-%m-%d))
+
+          - EduPortalLauncher.exe: 이 파일 하나만 받아 더블클릭하면 실행됩니다.
+          - config.json: 열 사이트 목록을 바꾸고 싶을 때만 exe와 같은 폴더에 두세요(선택)."
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest dist/EduPortalLauncher.exe dist/config.json \
+            --title "EduPortalLauncher (최신 빌드)" --notes "$notes" --target "$GITHUB_SHA"
