@@ -158,6 +158,31 @@ def find_element_by_text(window, text: str, exact: bool = False, control_type: s
     return None
 
 
+def page_root(window):
+    """현재 보이는 탭의 웹페이지 영역(UIA Document)을 돌려준다.
+
+    창 전체에서 찾으면 Edge 자체의 버튼(창 닫기 '닫기', 탭 닫기 등)까지 후보가 되어
+    페이지 안 팝업 대신 브라우저를 닫아버릴 수 있으므로, 페이지 안 요소를 클릭할 때는
+    이 영역 안에서만 찾는다. 사이드바 등 다른 Document가 있을 수 있어 화면에 보이는
+    것 중 가장 큰 것을 고른다."""
+    try:
+        docs = window.descendants(control_type="Document")
+    except Exception:
+        return None
+    best, best_area = None, 0
+    for d in docs:
+        try:
+            if not d.is_visible():
+                continue
+            r = d.rectangle()
+            area = max(0, r.width()) * max(0, r.height())
+        except Exception:
+            continue
+        if area > best_area:
+            best, best_area = d, area
+    return best
+
+
 def wait_for_text(window, text: str, timeout: int, interval: int) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -171,14 +196,19 @@ def dismiss_notices(window, texts, attempts: int = 3) -> None:
     """로그인 직후 업무포털 페이지 안에 나타나는 안내 배너(예: '1주일동안 열지 않기'
     문구, 또는 우측 상단의 X 닫기 아이콘)가 바로가기 아이콘을 가려 클릭을 가로채는
     걸 막기 위해, 클릭 전에 먼저 닫아본다. 팝업 창이 아니라 페이지 안 요소라서
-    control_type을 Button으로 제한하지 않고 전체에서 찾는다 (X 아이콘은 Hyperlink,
-    Image, Text 등으로 노출되는 경우가 많다). 'X'처럼 아주 짧은 글자는 페이지의
-    다른 곳에 우연히 있는 글자와 헷갈리지 않도록 정확히 일치할 때만 클릭한다."""
+    control_type을 Button으로 제한하지 않고 페이지 영역 전체에서 찾는다 (X 아이콘은
+    Hyperlink, Image, Text 등으로 노출되는 경우가 많다). 'X'처럼 아주 짧은 글자는 페이지의
+    다른 곳에 우연히 있는 글자와 헷갈리지 않도록 정확히 일치할 때만 클릭한다.
+    브라우저 자체의 '닫기' 버튼을 누르지 않도록 반드시 페이지 영역 안에서만 찾는다."""
     for _ in range(attempts):
+        page = page_root(window)
+        if page is None:
+            log("페이지 영역을 찾지 못해 안내 배너 닫기를 건너뜁니다.")
+            return
         dismissed_any = False
         for text in texts:
             exact = len(text) <= 2
-            elem = find_element_by_text(window, text, exact=exact)
+            elem = find_element_by_text(page, text, exact=exact)
             if elem is None:
                 continue
             try:
@@ -373,7 +403,8 @@ def run() -> None:
     opened = False
     found_element = True
     for attempt in range(2):
-        elem = find_element_by_text(window, text, exact=True, control_type="Hyperlink")
+        page = page_root(window)
+        elem = find_element_by_text(page, text, exact=True, control_type="Hyperlink") if page is not None else None
         if elem is None:
             found_element = False
             break
