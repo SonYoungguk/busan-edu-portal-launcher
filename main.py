@@ -7,8 +7,7 @@
 관여하지 않는다. 업무포털 로그인 완료 여부만 화면 요소로 감지해서, 완료되면:
 - K-에듀파인은 klef.pen.go.kr 세션 쿠키가 업무포털과 공유되어 URL을 바로 열어도
   로그인 상태로 뜨므로, 새 탭으로 직접 연다.
-- 나이스는 별도 도메인(neis.go.kr)이라 세션이 공유되지 않아, 업무포털의 SSO
-  바로가기 버튼을 실제로 클릭해서 넘어간다.
+- 나이스도 같은 창에 새 탭으로 나이스 메인 주소(neis_url)를 직접 연다.
 """
 
 import argparse
@@ -40,7 +39,7 @@ DEFAULT_CONFIG = {
     "portal_url": "https://pen.eduptl.kr/bpm_man_mn00_001.do",
     "login_indicator_text": "Logout",
     "login_button_text": "교육행정 전자서명 인증서 로그인",
-    "nice_link_text": "나이스",
+    "neis_url": "https://pen.neis.go.kr/jsp/main.jsp",
     "edufine_url": "https://klef.pen.go.kr/",
     "notice_dismiss_texts": ["1주일동안 열지 않기", "닫기", "X", "×"],
     "timeout_seconds": 300,
@@ -256,19 +255,6 @@ def open_tab(window, url: str, settle: float = 0.5) -> None:
         log(f"'{url}' 여는 데 실패: {e}")
 
 
-def wait_for_navigation(window, before_windows: dict, before_tab_count, timeout: int = 60, interval: int = 1) -> bool:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        after_windows = get_edge_windows()
-        if set(after_windows) - set(before_windows):
-            return True
-        after_tab_count = count_tabs(window)
-        if after_tab_count is not None and before_tab_count is not None and after_tab_count > before_tab_count:
-            return True
-        time.sleep(interval)
-    return False
-
-
 def wait_for_any_tab_containing(text: str, timeout: int = 60, interval: int = 1) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -395,49 +381,13 @@ def run() -> None:
     time.sleep(0.3)
     dismiss_notices(window, cfg.get("notice_dismiss_texts", []))
 
-    # 1) 나이스 먼저: 별도 도메인이라 세션이 공유되지 않으므로, 업무포털의 SSO
-    #    바로가기 버튼을 실제로 클릭해서 넘어간다. 중간에 안내 팝업이 나중에 뜨면서
-    #    클릭을 가로챌 수 있으므로, 처음 클릭이 안 먹히면 팝업을 다시 닫고 재시도한다.
-    text = cfg["nice_link_text"]
-    notice_texts = cfg.get("notice_dismiss_texts", [])
-    opened = False
-    found_element = True
-    for attempt in range(2):
-        page = page_root(window)
-        elem = find_element_by_text(page, text, exact=True, control_type="Hyperlink") if page is not None else None
-        if elem is None:
-            found_element = False
-            break
-
-        before_windows = get_edge_windows()
-        before_tab_count = count_tabs(window)
-        try:
-            window.set_focus()
-            elem.click_input()
-            log("나이스 바로가기 클릭됨, 로딩 대기 중...")
-        except Exception as e:
-            log(f"나이스 바로가기 클릭 실패: {e}")
-            break
-
-        wait_timeout = 15 if attempt == 0 else 60
-        if wait_for_navigation(window, before_windows, before_tab_count, timeout=wait_timeout):
-            log("나이스 열림 확인됨")
-            opened = True
-            break
-
-        if attempt == 0:
-            log("나이스가 열리지 않아 안내창이 가리고 있는지 다시 확인합니다.")
-            try:
-                window.set_focus()
-                window.type_keys("{ESC}")
-            except Exception:
-                pass
-            dismiss_notices(window, notice_texts)
-
-    if not found_element:
-        log(f"'{text}' 바로가기를 찾지 못했습니다.")
-    elif not opened:
-        log("나이스 열림을 확인하지 못했습니다.")
+    # 1) 나이스 먼저: 같은 창에 새 탭으로 나이스 메인 주소를 직접 연다.
+    log(f"나이스 여는 중: {cfg['neis_url']}")
+    open_tab(window, cfg["neis_url"])
+    if wait_for_any_tab_containing("나이스", timeout=30) or wait_for_any_tab_containing("NEIS", timeout=1):
+        log("나이스 열림 확인됨")
+    else:
+        log("나이스 탭 제목을 확인하지 못했습니다 (30초 대기)")
 
     # 2) 그 다음 K-에듀파인: 업무포털과 세션 쿠키가 공유되므로 같은 창에 새 탭으로 바로 연다.
     log(f"K-에듀파인 여는 중: {cfg['edufine_url']}")
